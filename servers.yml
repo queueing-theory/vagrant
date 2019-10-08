@@ -5,4 +5,4 @@
   memory: 8192
   cpus: 4
   provision: "scripts/bootstrap.sh"
-  forwarded_ports: [80,80,8080,8080,2181,2181,9092,9092,3306,3306,9393,9393]
+  forwarded_ports: [5432,5432,9092,9092]

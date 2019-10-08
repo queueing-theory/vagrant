@@ -10,7 +10,7 @@ install_wget() {
   value=$(rpm -qa | grep -c ^wget)
   if [ $value -eq 0 ]; then
     printLog "Installing wget";
-    sudo yum --quiet -y install wget
+    sudo yum --nogpgcheck --quiet -y install wget
   fi
 }
 
@@ -35,18 +35,29 @@ install_kafka() {
   fi
 }
 
-install_mariadb() {
-  value=$(rpm -qa | grep -c ^MariaDB)
+install_postgresql11_server() {
+  value=$(rpm -qa | grep -c ^postgresql11-server)
   if [ $value -eq 0 ]; then
-    printLog "Installing MariaDB-client MariaDB-server";
-    yum --quiet -y install MariaDB-client MariaDB-server
-    systemctl enable mariadb.service
-    systemctl start mariadb.service
-    printLog "Provisioning database";
-    mysql -u root -e "CREATE USER 'vagrant'@'localhost' IDENTIFIED BY 'vagrant';"
-    mysql -u root -e "GRANT ALL PRIVILEGES ON *.* TO vagrant IDENTIFIED BY 'vagrant' WITH GRANT OPTION; FLUSH PRIVILEGES;"
-    sudo systemctl restart mariadb.service
-  fi
+    printLog "Installing postgresql11-server";
+    sudo rpm -Uvh https://download.postgresql.org/pub/repos/yum/reporpms/EL-7-x86_64/pgdg-redhat-repo-latest.noarch.rpm
+    sudo yum --nogpgcheck --quiet -y install postgresql11 postgresql11-server
+    sudo /usr/pgsql-11/bin/postgresql-11-setup initdb
+    sed -i "s/#listen_addresses = 'localhost'/listen_addresses = '*'      /" /var/lib/pgsql/11/data/postgresql.conf
+    echo "host    all             all             all                     md5" >> /var/lib/pgsql/11/data/pg_hba.conf
+    sudo systemctl enable postgresql-11.service
+    sudo systemctl start postgresql-11.service
+    cat << EOF | su - postgres -c psql
+-- Create the database user:
+CREATE USER vagrant WITH PASSWORD 'vagrant' CREATEDB;
+
+-- Create the database:
+CREATE DATABASE vagrant WITH OWNER=vagrant
+                                  LC_COLLATE='en_US.utf8'
+                                  LC_CTYPE='en_US.utf8'
+                                  ENCODING='UTF8'
+                                  TEMPLATE=template0;
+EOF
+   fi
 }
 
 node_ip=$1
@@ -62,32 +73,27 @@ zk=\${node_ip}:\$zk_port
 broker=\${node_ip}:\$kafka_port
 
 kafka_home=/home/vagrant/kafka
-spark_home=/home/vagrant/spark
 EOF
 
 source "/vagrant/scripts/common.sh"
 
-sudo tee "/etc/yum.repos.d/MariaDB.repo" > /dev/null <<EOF
-[mariadb]
-name = MariaDB
-baseurl = http://yum.mariadb.org/10.1/centos7-amd64
-gpgkey=https://yum.mariadb.org/RPM-GPG-KEY-MariaDB
-gpgcheck=0
-EOF
-
 sudo tee "/etc/yum.repos.d/adoptopenjdk.repo" > /dev/null <<EOF
 [AdoptOpenJDK]
 name=AdoptOpenJDK
-baseurl=http://adoptopenjdk.jfrog.io/adoptopenjdk/rpm/centos/7/$(uname -m)
+baseurl=https://adoptopenjdk.jfrog.io/adoptopenjdk/rpm/centos/7/$(uname -m)
 enabled=1
 gpgcheck=1
 gpgkey=https://adoptopenjdk.jfrog.io/adoptopenjdk/api/gpg/key/public
 EOF
 
-install_wget
+sudo yum update
+
 install_adoptopenjdk_11_hotspot
+install_wget
 install_kafka
-install_mariadb
+install_postgresql11_server
+
+
 
 chown vagrant:vagrant -R /home/vagrant/
 chmod u+x /vagrant/scripts/*.sh
